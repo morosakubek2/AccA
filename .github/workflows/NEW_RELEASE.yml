@@ -43,17 +43,39 @@ jobs:
           storeFile=release-key.jks
           EOF
 
-      - name: Build signed APK
-        uses: gradle/gradle-build-action@v3
+      - name: Build release APK
+        uses: gradle/actions/setup-gradle@v3
         with:
           arguments: assembleRelease
 
+      - name: Sign APK if unsigned
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "Found APK: $APK"
+          if [[ "$APK" == *"-unsigned.apk" ]]; then
+            echo "APK is unsigned, signing manually..."
+            APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name apksigner | sort -r | head -n 1)
+            $APKSIGNER sign --ks release-key.jks --ks-key-alias androiddebugkey \
+              --ks-pass pass:android --key-pass pass:android \
+              --v1-signing-enabled --v2-signing-enabled --verbose "$APK"
+            # Zipalign
+            ZIPALIGN=$(find $ANDROID_SDK_ROOT/build-tools -name zipalign | sort -r | head -n 1)
+            $ZIPALIGN -v -p 4 "$APK" "${APK%.apk}-aligned.apk"
+            mv "${APK%.apk}-aligned.apk" "$APK"
+            # Rename to remove -unsigned if present
+            mv "$APK" "${APK/-unsigned.apk/.apk}"
+            APK="${APK/-unsigned.apk/.apk}"
+            echo "Signed and renamed to: $APK"
+          else
+            echo "APK is already signed."
+          fi
+
       - name: Verify signature
         run: |
-          APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name apksigner | sort -r | head -n 1)
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
-          echo "APK to verify: $APK"
-          $APKSIGNER verify --verbose "$APK"
+          APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name apksigner | sort -r | head -n 1)
+          echo "Verifying: $APK"
+          $APKSIGNER verify --verbose "$APK" || exit 1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
