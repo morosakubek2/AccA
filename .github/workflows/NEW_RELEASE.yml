@@ -36,13 +36,6 @@ jobs:
         with:
           ndk-version: r26d
 
-      - name: Temporarily disable signing in build.gradle
-        run: |
-          # To build unsigned APK, comment out signingConfig in release buildType
-          sed -i 's/signingConfig signingConfigs.release/#signingConfig signingConfigs.release/' app/build.gradle
-          # Also comment out the loading of key.properties if present
-          sed -i 's/if (keystorePropertiesFile.exists()) {/if (false) {/' app/build.gradle  # Adjust if your code differs
-
       - name: Gradle Build (unsigned)
         uses: gradle/gradle-build-action@v2
         with:
@@ -57,18 +50,23 @@ jobs:
 
       - name: Sign APK
         run: |
+          # Find the unsigned APK (name is dynamic due to archivesBaseName)
+          UNSIGNED_APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "No APK found in app/build/outputs/apk/release/"
+            exit 1
+          fi
+          echo "Found APK: $UNSIGNED_APK"
           # Find the latest apksigner
           APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name apksigner | sort -r | head -n 1)
-          # The unsigned APK is app-release.apk when signing is disabled
-          UNSIGNED_APK="app/build/outputs/apk/release/app-release.apk"
-          # Sign it to a temp file
+          # Sign in place
           $APKSIGNER sign --ks release-key.jks --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android \
             --v1-signing-enabled --v2-signing-enabled "$UNSIGNED_APK"
           # Optionally zipalign for optimization (if needed)
           ZIPALIGN=$(find $ANDROID_SDK_ROOT/build-tools -name zipalign | sort -r | head -n 1)
-          $ZIPALIGN -v -p 4 "$UNSIGNED_APK" app-release-signed.apk
-          # Overwrite the original with the signed/aligned version
-          mv app-release-signed.apk "$UNSIGNED_APK"
+          $ZIPALIGN -v -p 4 "$UNSIGNED_APK" "${UNSIGNED_APK%.apk}-aligned.apk"
+          # Overwrite with aligned version
+          mv "${UNSIGNED_APK%.apk}-aligned.apk" "$UNSIGNED_APK"
 
       - name: Upload APK
         if: github.event_name != 'pull_request'
