@@ -59,14 +59,16 @@ jobs:
         run: |
           # Find the latest apksigner
           APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name apksigner | sort -r | head -n 1)
-          # Sign the unsigned APK
+          # The unsigned APK is app-release.apk when signing is disabled
+          UNSIGNED_APK="app/build/outputs/apk/release/app-release.apk"
+          # Sign it to a temp file
           $APKSIGNER sign --ks release-key.jks --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android \
-            --v1-signing-enabled --v2-signing-enabled app/build/outputs/apk/release/app-release-unsigned.apk
+            --v1-signing-enabled --v2-signing-enabled "$UNSIGNED_APK"
           # Optionally zipalign for optimization (if needed)
           ZIPALIGN=$(find $ANDROID_SDK_ROOT/build-tools -name zipalign | sort -r | head -n 1)
-          $ZIPALIGN -v -p 4 app/build/outputs/apk/release/app-release-unsigned.apk app-release-signed.apk
-          # Move to expected location or rename
-          mv app-release-signed.apk app/build/outputs/apk/release/app-release.apk 2>/dev/null || mv app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/release/app-release.apk
+          $ZIPALIGN -v -p 4 "$UNSIGNED_APK" app-release-signed.apk
+          # Overwrite the original with the signed/aligned version
+          mv app-release-signed.apk "$UNSIGNED_APK"
 
       - name: Upload APK
         if: github.event_name != 'pull_request'
